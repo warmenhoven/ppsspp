@@ -57,7 +57,6 @@ SDLJoystick *joystick = NULL;
 #include "SDLGLGraphicsContext.h"
 #include "SDLVulkanGraphicsContext.h"
 
-
 GlobalUIState lastUIState = UISTATE_MENU;
 GlobalUIState GetUIState();
 
@@ -534,11 +533,13 @@ int main(int argc, char *argv[]) {
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 #endif
 
+#ifndef HAVE_LIBNX
 	if (VulkanMayBeAvailable()) {
 		printf("DEBUG: Vulkan might be available.\n");
 	} else {
 		printf("DEBUG: Vulkan is not available, not using Vulkan.\n");
 	}
+#endif // HAVE_LIBNX
 
 	SDL_version compiled;
 	SDL_version linked;
@@ -616,6 +617,7 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Could not get display mode: %s\n", SDL_GetError());
 		return 1;
 	}
+
 	g_DesktopWidth = displayMode.w;
 	g_DesktopHeight = displayMode.h;
 	g_RefreshRate = displayMode.refresh_rate;
@@ -644,7 +646,7 @@ int main(int argc, char *argv[]) {
 	if (mode & SDL_WINDOW_FULLSCREEN_DESKTOP) {
 		pixel_xres = g_DesktopWidth;
 		pixel_yres = g_DesktopHeight;
-		g_Config.bFullScreen = true;
+		g_Config.bFullScreen = false;
 	} else {
 		// set a sensible default resolution (2x)
 		pixel_xres = 480 * 2 * set_scale;
@@ -735,7 +737,9 @@ int main(int argc, char *argv[]) {
 			printf("GL init error '%s'\n", error_message.c_str());
 		}
 		graphicsContext = ctx;
-	} else if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN) {
+	}
+#ifndef HAVE_LIBNX
+	else if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN) {
 		SDLVulkanGraphicsContext *ctx = new SDLVulkanGraphicsContext();
 		if (!ctx->Init(window, x, y, mode, &error_message)) {
 			printf("Vulkan init error '%s' - falling back to GL\n", error_message.c_str());
@@ -749,6 +753,7 @@ int main(int argc, char *argv[]) {
 			graphicsContext = ctx;
 		}
 	}
+#endif // HAVE_LIBNX
 
 	bool useEmuThread = g_Config.iGPUBackend == (int)GPUBackend::OPENGL;
 
@@ -1229,6 +1234,7 @@ int main(int argc, char *argv[]) {
 	printf("Leaving main");
 #ifdef HAVE_LIBNX
 	socketExit();
-#endif
+#endif // HAVE_LIBNX
+
 	return 0;
 }

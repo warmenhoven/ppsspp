@@ -42,6 +42,11 @@
 #include "Core/HLE/sceKernelInterrupt.h"
 #include "Core/HLE/HLE.h"
 
+#ifdef HAVE_LIBNX
+// Defined in Misc.cpp
+extern size_t strnlen(const char *s, size_t maxlen);
+#endif // HAVE_LIBNX
+
 enum
 {
 	// Do nothing after the syscall.

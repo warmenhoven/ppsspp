@@ -348,10 +348,15 @@ template <typename T> class RetroOption
       std::vector<std::pair<std::string, T>> list_;
 };
 
-static RetroOption<CPUCore> ppsspp_cpu_core("ppsspp_cpu_core", "CPU Core", { { "JIT", CPUCore::JIT }, { "IR JIT", CPUCore::IR_JIT }, { "Interpreter", CPUCore::INTERPRETER } });
+static RetroOption<CPUCore> ppsspp_cpu_core("ppsspp_cpu_core", "CPU Core", { { "jit", CPUCore::JIT }, { "IR Interpreter", CPUCore::IR_JIT }, { "Interpreter", CPUCore::INTERPRETER } });
 static RetroOption<int> ppsspp_locked_cpu_speed("ppsspp_locked_cpu_speed", "Locked CPU Speed", { { "off", 0 }, { "222MHz", 222 }, { "266MHz", 266 }, { "333MHz", 333 } });
-static RetroOption<int> ppsspp_language("ppsspp_language", "Language", { { "Automatic", -1 }, { "English", PSP_SYSTEMPARAM_LANGUAGE_ENGLISH }, { "Japanese", PSP_SYSTEMPARAM_LANGUAGE_JAPANESE }, { "French", PSP_SYSTEMPARAM_LANGUAGE_FRENCH }, { "Spanish", PSP_SYSTEMPARAM_LANGUAGE_SPANISH }, { "German", PSP_SYSTEMPARAM_LANGUAGE_GERMAN }, { "Italian", PSP_SYSTEMPARAM_LANGUAGE_ITALIAN }, { "Dutch", PSP_SYSTEMPARAM_LANGUAGE_DUTCH }, { "Portuguese", PSP_SYSTEMPARAM_LANGUAGE_PORTUGUESE }, { "Russian", PSP_SYSTEMPARAM_LANGUAGE_RUSSIAN }, { "Korean", PSP_SYSTEMPARAM_LANGUAGE_KOREAN }, { "Chinese Traditional", PSP_SYSTEMPARAM_LANGUAGE_CHINESE_TRADITIONAL }, { "Chinese Simplified", PSP_SYSTEMPARAM_LANGUAGE_CHINESE_SIMPLIFIED } });
-static RetroOption<int> ppsspp_rendering_mode("ppsspp_rendering_mode", "Rendering Mode", { { "Buffered", FB_BUFFERED_MODE }, { "Skip Buffer Effects", FB_NON_BUFFERED_MODE } });
+static RetroOption<bool> ppsspp_vertexjit("ppsspp_vertexjit", "JIT Vertex Decoding (JIT only)", true);
+static RetroOption<int> ppsspp_language("ppsspp_language", "Language", { { "automatic", -1 }, { "english", PSP_SYSTEMPARAM_LANGUAGE_ENGLISH }, { "japanese", PSP_SYSTEMPARAM_LANGUAGE_JAPANESE }, { "french", PSP_SYSTEMPARAM_LANGUAGE_FRENCH }, { "spanish", PSP_SYSTEMPARAM_LANGUAGE_SPANISH }, { "german", PSP_SYSTEMPARAM_LANGUAGE_GERMAN }, { "italian", PSP_SYSTEMPARAM_LANGUAGE_ITALIAN }, { "dutch", PSP_SYSTEMPARAM_LANGUAGE_DUTCH }, { "portuguese", PSP_SYSTEMPARAM_LANGUAGE_PORTUGUESE }, { "russian", PSP_SYSTEMPARAM_LANGUAGE_RUSSIAN }, { "korean", PSP_SYSTEMPARAM_LANGUAGE_KOREAN }, { "chinese_traditional", PSP_SYSTEMPARAM_LANGUAGE_CHINESE_TRADITIONAL }, { "chinese_simplified", PSP_SYSTEMPARAM_LANGUAGE_CHINESE_SIMPLIFIED } });
+#ifdef HAVE_LIBNX
+static RetroOption<int> ppsspp_rendering_mode("ppsspp_rendering_mode", "Rendering Mode", { { "buffered", FB_BUFFERED_MODE } });
+#else
+static RetroOption<int> ppsspp_rendering_mode("ppsspp_rendering_mode", "Rendering Mode", { { "buffered", FB_BUFFERED_MODE }, { "nonbuffered", FB_NON_BUFFERED_MODE } });
+#endif
 static RetroOption<bool> ppsspp_auto_frameskip("ppsspp_auto_frameskip", "Auto Frameskip", false);
 static RetroOption<int> ppsspp_frameskip("ppsspp_frameskip", "Frameskip", { "Off", "1", "2", "3", "4", "5", "6", "7", "8" });
 static RetroOption<int> ppsspp_frameskiptype("ppsspp_frameskiptype", "Frameskip Type", { {"Number of frames", 0}, {"Percent of FPS", 1} });
@@ -368,6 +373,7 @@ static RetroOption<int> ppsspp_texture_anisotropic_filtering("ppsspp_texture_ani
 static RetroOption<int> ppsspp_lower_resolution_for_effects("ppsspp_lower_resolution_for_effects", "Lower resolution for effects", { {"Off", 0}, {"Safe", 1}, {"Balanced", 2}, {"Aggressive", 3} });
 static RetroOption<bool> ppsspp_texture_deposterize("ppsspp_texture_deposterize", "Texture Deposterize", false);
 static RetroOption<bool> ppsspp_texture_replacement("ppsspp_texture_replacement", "Texture Replacement", false);
+static RetroOption<bool> ppsspp_disable_slow_framebuffer_effects("ppsspp_disable_slow_framebuffer_effects", "Disable slower effects (Speedhack)", false);
 static RetroOption<bool> ppsspp_gpu_hardware_transform("ppsspp_gpu_hardware_transform", "GPU Hardware T&L", true);
 static RetroOption<bool> ppsspp_vertex_cache("ppsspp_vertex_cache", "Vertex Cache (Speedhack)", false);
 static RetroOption<bool> ppsspp_cheats("ppsspp_cheats", "Internal Cheats Support", false);
@@ -385,6 +391,7 @@ void retro_set_environment(retro_environment_t cb)
    std::vector<retro_variable> vars;
    vars.push_back(ppsspp_internal_resolution.GetOptions());
    vars.push_back(ppsspp_cpu_core.GetOptions());
+	vars.push_back(ppsspp_vertexjit.GetOptions());
    vars.push_back(ppsspp_locked_cpu_speed.GetOptions());
    vars.push_back(ppsspp_language.GetOptions());
    vars.push_back(ppsspp_button_preference.GetOptions());
@@ -515,6 +522,7 @@ static void check_variables(CoreParameter &coreParam)
    ppsspp_rendering_mode.Update(&g_Config.iRenderingMode);
    ppsspp_cpu_core.Update((CPUCore *)&g_Config.iCpuCore);
    ppsspp_io_timing_method.Update((IOTimingMethods *)&g_Config.iIOTimingMethod);
+	ppsspp_vertexjit.Update(&g_Config.bVertexDecoderJit);
    ppsspp_lower_resolution_for_effects.Update(&g_Config.iBloomHack);
    ppsspp_software_skinning.Update(&g_Config.bSoftwareSkinning);
    ppsspp_ignore_bad_memory_access.Update(&g_Config.bIgnoreBadMemAccess);
@@ -606,7 +614,9 @@ void retro_init(void)
       logman->RemoveListener(logman->GetDebuggerListener());
       logman->ChangeFileLog(nullptr);
       logman->AddListener(printfLogger);
-      logman->SetAllLogLevels(LogTypes::LINFO);
+#if 1
+		logman->SetAllLogLevels(LogTypes::LNOTICE);
+#endif
    }
 
    g_Config.Load("", "");
@@ -813,6 +823,14 @@ bool retro_load_game(const struct retro_game_info *game)
    check_variables(coreParam);
 
    std::string error_string;
+#if 0
+   g_Config.bVertexDecoderJit = (coreParam.cpuCore == CPU_JIT) ? true : false;
+#endif
+	check_variables(coreParam);
+	
+	if(g_Config.bVertexDecoderJit)
+		g_Config.bVertexDecoderJit = (coreParam.cpuCore == CPUCore::JIT) ? true : false;
+
    if (!PSP_InitStart(coreParam, &error_string))
    {
       ERROR_LOG(BOOT, "%s", error_string.c_str());
