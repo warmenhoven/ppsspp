@@ -19,7 +19,9 @@
 
 #if !defined(_WIN32) && !defined(ANDROID) && !defined(__APPLE__)
 
+#ifndef HAVE_LIBNX
 #include <sys/mman.h>
+#endif // !HAVE_LIBNX
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -58,7 +60,7 @@ bool MemArena::NeedsProbing() {
 	return false;
 }
 
-void MemArena::GrabLowMemSpace(size_t size) {
+bool MemArena::GrabMemSpace(size_t size) {
 #ifndef HAVE_LIBNX
 	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
 
@@ -106,8 +108,11 @@ void MemArena::GrabLowMemSpace(size_t size) {
 		ERROR_LOG(MEMMAP, "Failed to ftruncate %d (%s) to size %08x", (int)fd, ram_temp_file.c_str(), (int)size);
 		// Should this be a failure?
 	}
+
+	return true;
+#else
+	return true;
 #endif
-	return;
 }
 
 void MemArena::ReleaseSpace() {
