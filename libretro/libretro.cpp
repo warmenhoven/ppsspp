@@ -373,7 +373,6 @@ static RetroOption<int> ppsspp_texture_anisotropic_filtering("ppsspp_texture_ani
 static RetroOption<int> ppsspp_lower_resolution_for_effects("ppsspp_lower_resolution_for_effects", "Lower resolution for effects", { {"Off", 0}, {"Safe", 1}, {"Balanced", 2}, {"Aggressive", 3} });
 static RetroOption<bool> ppsspp_texture_deposterize("ppsspp_texture_deposterize", "Texture Deposterize", false);
 static RetroOption<bool> ppsspp_texture_replacement("ppsspp_texture_replacement", "Texture Replacement", false);
-static RetroOption<bool> ppsspp_disable_slow_framebuffer_effects("ppsspp_disable_slow_framebuffer_effects", "Disable slower effects (Speedhack)", false);
 static RetroOption<bool> ppsspp_gpu_hardware_transform("ppsspp_gpu_hardware_transform", "GPU Hardware T&L", true);
 static RetroOption<bool> ppsspp_vertex_cache("ppsspp_vertex_cache", "Vertex Cache (Speedhack)", false);
 static RetroOption<bool> ppsspp_cheats("ppsspp_cheats", "Internal Cheats Support", false);
