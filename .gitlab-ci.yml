@@ -6,13 +6,6 @@ variables:
   variables:
     CORENAME: ppsspp
     CORE_ARGS: -DLIBRETRO=ON
-
-.cmake-defs:
-  variables:
-    EXTRA_PATH: lib
-
-.make-defs:
-  variables:
     MAKEFILE_PATH: libretro
 
 include:
