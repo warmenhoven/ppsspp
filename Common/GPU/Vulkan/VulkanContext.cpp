@@ -1101,9 +1101,8 @@ bool VulkanContext::InitSwapchain() {
 		swapchainPresentMode, PresentModeString(swapchainPresentMode),
 		desiredNumberOfSwapChainImages, surfCapabilities_.maxImageCount);
 
-	// We mostly follow the practices from
-	// https://arm-software.github.io/vulkan_best_practice_for_mobile_developers/samples/surface_rotation/surface_rotation_tutorial.html
-	//
+	// We try to follow the practices from https://developer.android.com/games/optimize/vulkan-prerotation.
+
 	VkSurfaceTransformFlagBitsKHR preTransform;
 	std::string supportedTransforms = surface_transforms_to_string(surfCapabilities_.supportedTransforms);
 	std::string currentTransform = surface_transforms_to_string(surfCapabilities_.currentTransform);

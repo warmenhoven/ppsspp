@@ -319,6 +319,16 @@ bool VulkanMayBeAvailable() {
 		return g_vulkanMayBeAvailable;
 	}
 
+#if PPSSPP_PLATFORM(ANDROID)
+	int platformVersion = System_GetPropertyInt(SYSPROP_SYSTEMVERSION);
+	if (platformVersion < 26) {  // Less than Android 8.0 (SDK 26)?
+		// The early Vulkan implementations that shipped on Android 7.x devices are not worth using (bugs, bad performance).
+		g_vulkanAvailabilityChecked = true;
+		g_vulkanMayBeAvailable = false;
+		return false;
+	}
+#endif
+
 	std::string name = System_GetProperty(SYSPROP_NAME);
 	for (const char *blacklisted_name : device_name_blacklist) {
 		if (!strcmp(name.c_str(), blacklisted_name)) {
