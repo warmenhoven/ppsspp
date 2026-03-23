@@ -82,7 +82,11 @@ public:
 #else // PPSSPP_PLATFORM(SWITCH)
 		// The protection will be set to RW if PlatformIsWXExclusive.
 		region = (u8 *)AllocateExecutableMemory(region_size);
-		writableRegion = region;
+		if (PlatformIsDualMapped()) {
+			writableRegion = (u8 *)AllocateWritableRegion(region, region_size);
+		} else {
+			writableRegion = region;
+		}
 #endif // !PPSSPP_PLATFORM(SWITCH)
 		T::SetCodePointer(region, writableRegion);
 	}
@@ -152,7 +156,11 @@ public:
 	// Call this when shutting down. Don't rely on the destructor, even though it'll do the job.
 	void FreeCodeSpace() {
 #if !PPSSPP_PLATFORM(SWITCH)
-		ProtectMemoryPages(region, region_size, MEM_PROT_READ | MEM_PROT_WRITE);
+		if (writableRegion != region) {
+			FreeWritableRegion(writableRegion, region_size);
+		} else {
+			ProtectMemoryPages(region, region_size, MEM_PROT_READ | MEM_PROT_WRITE);
+		}
 		FreeExecutableMemory(region, region_size);
 #else // !PPSSPP_PLATFORM(SWITCH)
 		jitClose(&jitController);

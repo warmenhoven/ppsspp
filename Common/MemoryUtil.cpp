@@ -39,6 +39,11 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <mach/vm_param.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <signal.h>
+#include <sys/ucontext.h>
+#endif
 #endif
 
 #ifndef _WIN32
@@ -185,11 +190,37 @@ void *AllocateExecutableMemory(size_t size) {
 	}
 #endif
 
-	int prot = PROT_READ | PROT_WRITE | PROT_EXEC;
-	if (PlatformIsWXExclusive())
-		prot = PROT_READ | PROT_WRITE;  // POST_EXEC is added later in this case.
+	int prot;
+	if (PlatformIsDualMapped()) {
+		prot = PROT_READ | PROT_EXEC;
+	} else if (PlatformIsWXExclusive()) {
+		prot = PROT_READ | PROT_WRITE;
+	} else {
+		prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+	}
 
 	void* ptr = mmap(map_hint, size, prot, MAP_ANON | MAP_PRIVATE, -1, 0);
+
+#if PPSSPP_PLATFORM(IOS)
+	// Notify the debugger about the executable region
+	if (ptr != MAP_FAILED && PlatformIsDualMapped()) {
+		static volatile bool s_brk_trapped;
+		static struct sigaction s_prev_trap;
+		struct sigaction trap_act = {};
+		trap_act.sa_sigaction = [](int, siginfo_t *, void *ctx) {
+			s_brk_trapped = true;
+			((ucontext_t *)ctx)->uc_mcontext->__ss.__pc += 4;
+		};
+		sigemptyset(&trap_act.sa_mask);
+		trap_act.sa_flags = SA_SIGINFO;
+		sigaction(SIGTRAP, &trap_act, &s_prev_trap);
+		s_brk_trapped = false;
+		__asm__ volatile(
+			"mov x0, %0\nmov x1, %1\nbrk #0x69"
+			:: "r"(ptr), "r"(size) : "x0", "x1", "memory");
+		sigaction(SIGTRAP, &s_prev_trap, nullptr);
+	}
+#endif
 
 	if (ptr == MAP_FAILED) {
 		ptr = nullptr;
@@ -293,12 +324,54 @@ bool PlatformIsWXExclusive() {
 	// Needed on platforms that disable W^X pages for security. Even without block linking, still should be much faster than IR JIT.
 	// This might also come in useful for UWP (Universal Windows Platform) if I'm understanding things correctly.
 #if PPSSPP_PLATFORM(IOS) || PPSSPP_PLATFORM(UWP) || defined(__OpenBSD__)
-	return true;
+	return !PlatformIsDualMapped();
 #elif PPSSPP_PLATFORM(MAC) && PPSSPP_ARCH(ARM64)
+	return !PlatformIsDualMapped();
+#else
+	return false;
+#endif
+}
+
+bool PlatformIsDualMapped() {
+#if PPSSPP_PLATFORM(MAC) && PPSSPP_ARCH(ARM64)
 	return true;
+#elif PPSSPP_PLATFORM(IOS)
+	if (__builtin_available(iOS 26, *))
+		return true;
+	return false;
 #else
 	// Returning true here lets you test the W^X path on Windows and other non-W^X platforms.
 	return false;
+#endif
+}
+
+#if PPSSPP_PLATFORM(IOS) || (PPSSPP_PLATFORM(MAC) && PPSSPP_ARCH(ARM64))
+#include <mach/mach.h>
+#endif
+
+void *AllocateWritableRegion(void *executablePtr, size_t size) {
+#if PPSSPP_PLATFORM(IOS) || (PPSSPP_PLATFORM(MAC) && PPSSPP_ARCH(ARM64))
+	vm_address_t rw_region = 0;
+	vm_prot_t cur_prot = 0, max_prot = 0;
+	kern_return_t kr = vm_remap(mach_task_self(), &rw_region, size, 0,
+		VM_FLAGS_ANYWHERE, mach_task_self(), (vm_address_t)executablePtr,
+		false, &cur_prot, &max_prot, VM_INHERIT_DEFAULT);
+	if (kr != KERN_SUCCESS) {
+		ERROR_LOG(Log::MemMap, "vm_remap failed: 0x%x", kr);
+		return nullptr;
+	}
+	void *rw = (void *)rw_region;
+	mprotect(rw, size, PROT_READ | PROT_WRITE);
+	return rw;
+#else
+	return nullptr;
+#endif
+}
+
+void FreeWritableRegion(void *writablePtr, size_t size) {
+#if PPSSPP_PLATFORM(IOS) || (PPSSPP_PLATFORM(MAC) && PPSSPP_ARCH(ARM64))
+	if (writablePtr)
+		vm_deallocate(mach_task_self(), (vm_address_t)writablePtr, size);
 #endif
 }
 

@@ -29,6 +29,15 @@
 // Returns true if we need to avoid setting both writable and executable at the same time (W^X)
 bool PlatformIsWXExclusive();
 
+// Returns true if the platform uses dual-mapped memory (separate R-X and R-W views).
+// When true, BeginWrite/EndWrite are no-ops since the writable region is always writable.
+bool PlatformIsDualMapped();
+
+// Allocate a writable mirror of an executable region via vm_remap.
+// Returns the writable pointer, or nullptr if not supported.
+void *AllocateWritableRegion(void *executablePtr, size_t size);
+void FreeWritableRegion(void *writablePtr, size_t size);
+
 #define MEM_PROT_READ  1
 #define MEM_PROT_WRITE 2
 #define MEM_PROT_EXEC  4
