@@ -1549,6 +1549,7 @@ if(WIN32)
 	target_link_libraries(Common winmm dsound dxguid d2d1 dwrite d3d11 Version)
 endif()
 
+set(UISource)
 if(NOT LIBRETRO)
 	list(APPEND UISource
 		UI/AudioCommon.h
