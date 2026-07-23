@@ -117,7 +117,7 @@ void IOSVulkanContext::ShutdownFromRenderThread() {
 }
 
 void IOSVulkanContext::Shutdown() {
-	INFO_LOG(Log::G3D, "Calling NativeShutdownGraphics");
+	INFO_LOG(Log::G3D, "IOSVulkanContext::Shutdown");
 	g_Vulkan->DestroyDevice();
 	g_Vulkan->DestroyInstance();
 	// We keep the g_Vulkan context around to avoid invalidating a ton of pointers around the app.
@@ -243,7 +243,7 @@ void VulkanRenderLoop(IOSVulkanContext *graphicsContext, CAMetalLayer *metalLaye
 		INFO_LOG(Log::G3D, "Not entering main loop.");
 	}
 
-	NativeShutdownGraphics();
+	NativeShutdownGraphics(graphicsContext);
 
 	graphicsContext->ThreadEnd();
 

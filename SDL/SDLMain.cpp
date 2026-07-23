@@ -2096,7 +2096,8 @@ int main(int argc, char *argv[]) {
 	}
 	EnableFZ();
 
-	std::thread emuThread = EmuThread_Start(graphicsContext, nullptr);
+	NativeApplication application;
+	std::thread emuThread = EmuThread_Start(graphicsContext, &application, nullptr);
 
 	graphicsContext->ThreadStart();
 
@@ -2196,7 +2197,7 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-			emuThread = EmuThread_Start(graphicsContext, nullptr);
+			emuThread = EmuThread_Start(graphicsContext, &application, nullptr);
 			graphicsContext->ThreadStart();
 		}
 	}
