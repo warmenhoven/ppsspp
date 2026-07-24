@@ -1341,10 +1341,6 @@ set(targetExtra)
 set(targetExtraLibs)
 set(UISource)
 
-if(OPENXR AND NOT ARMV7_DEVICE)
-	list(APPEND targetExtraLibs openxr_loader)
-endif()
-
 if(IOS OR MACOSX)
 	list(APPEND targetExtra
 		Common/Render/Text/draw_text_cocoa.mm
@@ -2760,6 +2756,12 @@ if(ANDROID AND NOT LIBRETRO)
 	target_link_libraries(ppsspp_jni core log EGL OpenSLES)
 	if(TARGET ppsspp_ui)
 		target_link_libraries(ppsspp_jni ppsspp_ui)
+	endif()
+	if(OPENXR AND NOT ARMV7_DEVICE)
+		# Common/VR/*.cpp (part of Common, always linked in via core) calls directly into
+		# the OpenXR loader, so ppsspp_jni needs this too - not just ${TargetBin}, which is
+		# what openxr_loader was previously only being linked into.
+		target_link_libraries(ppsspp_jni openxr_loader)
 	endif()
 	if(ARM64)
 		# Support 16kb page size on Android
