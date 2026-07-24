@@ -948,6 +948,10 @@ add_library(Common STATIC
 	Common/SysError.cpp
 	Common/TimeUtil.cpp
 	Common/TimeUtil.h
+	ext/jpge/jpgd.cpp
+	ext/jpge/jpgd.h
+	ext/jpge/jpge.cpp
+	ext/jpge/jpge.h
 )
 
 if(LIBRETRO)
@@ -1271,7 +1275,6 @@ else()
 		)
 	endif()
 	target_compile_definitions(libzip PRIVATE HAVE_STDBOOL_H)
-	target_link_libraries(libzip)
 	include_directories(ext/libzip)
 	set(LIBZIP_LIBRARY libzip)
 endif()
@@ -1292,7 +1295,6 @@ add_library(7zip STATIC
 	ext/lzma-sdk/Lzma2Dec.c
 	ext/lzma-sdk/LzmaDec.c
 )
-target_link_libraries(7zip)
 include_directories(ext/lzma-sdk)
 set(LIB7ZIP_LIBRARY 7zip)
 
@@ -1378,14 +1380,15 @@ add_library(pugixml STATIC
 )
 
 set(nativeExtra)
-set(nativeExtraLibs)
+set(targetExtra)
+set(targetExtraLibs)
 
 if(OPENXR AND NOT ARMV7_DEVICE)
-	list(APPEND nativeExtraLibs openxr_loader)
+	list(APPEND targetExtraLibs openxr_loader)
 endif()
 
 if(IOS OR MACOSX)
-	list(APPEND nativeExtra
+	list(APPEND targetExtra
 		Common/Render/Text/draw_text_cocoa.mm
 		Common/Render/Text/draw_text_cocoa.h)
 endif()
@@ -1405,7 +1408,7 @@ if(ANDROID)
 	)
 	# No target
 elseif(IOS AND NOT LIBRETRO)
-	list(APPEND nativeExtra
+	list(APPEND targetExtra
 		ios/main.mm
 		ios/AppDelegate.mm
 		ios/AppDelegate.h
@@ -1437,16 +1440,16 @@ elseif(IOS AND NOT LIBRETRO)
 		Common/Battery/AppleBatteryClient.m
 	)
 
-	list(APPEND nativeExtraLibs "-framework Foundation -framework MediaPlayer -framework AudioToolbox -framework CoreGraphics -framework CoreMotion -framework QuartzCore -framework UIKit -framework GLKit -framework OpenAL -framework AVFoundation -framework CoreLocation -framework CoreText -framework CoreVideo -framework CoreMedia -framework CoreServices -framework Metal -framework IOSurface -framework Photos" )
+	list(APPEND targetExtraLibs "-framework Foundation -framework MediaPlayer -framework AudioToolbox -framework CoreGraphics -framework CoreMotion -framework QuartzCore -framework UIKit -framework GLKit -framework OpenAL -framework AVFoundation -framework CoreLocation -framework CoreText -framework CoreVideo -framework CoreMedia -framework CoreServices -framework Metal -framework IOSurface -framework Photos" )
 	if(EXISTS "${CMAKE_IOS_SDK_ROOT}/System/Library/Frameworks/GameController.framework")
-		list(APPEND nativeExtraLibs "-weak_framework GameController")
+		list(APPEND targetExtraLibs "-weak_framework GameController")
 	endif()
 	if(EXISTS "${CMAKE_IOS_SDK_ROOT}/System/Library/Frameworks/PhotosUI.framework")
-		list(APPEND nativeExtraLibs "-weak_framework PhotosUI")
+		list(APPEND targetExtraLibs "-weak_framework PhotosUI")
 	endif()
 
 	if(NOT ICONV_LIBRARY)
-		list(APPEND nativeExtraLibs iconv)
+		list(APPEND targetExtraLibs iconv)
 	endif()
 
 	# TODO: Enable arc globally?
@@ -1468,7 +1471,7 @@ elseif(IOS AND NOT LIBRETRO)
 
 	set(TargetBin PPSSPP)
 elseif(IOS AND LIBRETRO)
-	list(APPEND nativeExtraLibs "-framework GLKit")
+	list(APPEND targetExtraLibs "-framework GLKit")
 elseif(USING_QT_UI)
 	set(CMAKE_AUTOMOC ON)
 	find_package(Qt5 COMPONENTS OpenGL Gui Core Multimedia)
@@ -1491,21 +1494,25 @@ elseif(USING_QT_UI)
 		set_source_files_properties(Common/Battery/AppleBatteryClient.m
 			Common/Render/Text/draw_text_cocoa.mm
 			PROPERTIES COMPILE_FLAGS -fobjc-arc)
-		list(APPEND nativeExtraLibs ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY})
+		list(APPEND targetExtraLibs ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY})
 	endif()
 	include_directories(Qt)
 	include_directories(${CMAKE_CURRENT_BINARY_DIR})
-	list(APPEND nativeExtraLibs Qt5::OpenGL Qt5::Gui Qt5::Core Qt5::Multimedia)
+	list(APPEND targetExtraLibs Qt5::OpenGL Qt5::Gui Qt5::Core Qt5::Multimedia)
 	set(TargetBin PPSSPPQt)
+	list(APPEND targetExtra
+		Common/Render/Text/draw_text_qt.cpp
+		Common/Render/Text/draw_text_qt.h
+	)
 
 	# Enable SDL joystick if SDL is found
 	if(SDL_LIB_TARGET)
 		add_compile_definitions(SDL)
-		list(APPEND nativeExtra
+		list(APPEND targetExtra
 			SDL/SDLJoystick.h
 			SDL/SDLJoystick.cpp
 		)
-		list(APPEND nativeExtraLibs ${SDL_LIB_TARGET})
+		list(APPEND targetExtraLibs ${SDL_LIB_TARGET})
 	endif()
 
 elseif(WIN32)
@@ -1523,25 +1530,25 @@ else()
 	endif()
 	# Require SDL
 	add_compile_definitions(SDL)
-	list(APPEND nativeExtra
+	list(APPEND targetExtra
 		SDL/SDLJoystick.h
 		SDL/SDLJoystick.cpp
 		SDL/SDLMain.cpp
 		SDL/SDLGLGraphicsContext.cpp
 	)
 	if(NOT USE_LIBNX)
-		list(APPEND nativeExtra
+		list(APPEND targetExtra
 			SDL/SDLVulkanGraphicsContext.cpp
 		)
 	endif()
 	if(SDL_TTF_LIB_TARGET)
-		list(APPEND nativeExtraLibs ${SDL_TTF_LIB_TARGET})
+		list(APPEND targetExtraLibs ${SDL_TTF_LIB_TARGET})
 	endif()
 	if(FONTCONFIG_LIB_TARGET)
-		list(APPEND nativeExtraLibs ${FONTCONFIG_LIB_TARGET})
+		list(APPEND targetExtraLibs ${FONTCONFIG_LIB_TARGET})
 	endif()
 	if(APPLE)
-		list(APPEND nativeExtra
+		list(APPEND targetExtra
 			SDL/SDLCocoaMetalLayer.h
 			SDL/SDLCocoaMetalLayer.mm
 			SDL/CocoaBarItems.mm
@@ -1562,12 +1569,12 @@ else()
 			Common/Battery/AppleBatteryClient.m
 			Common/Render/Text/draw_text_cocoa.mm
 			PROPERTIES COMPILE_FLAGS -fobjc-arc)
-		list(APPEND nativeExtraLibs ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo")
-		list(APPEND nativeExtraLibs ${SDL_LIB_TARGET})
+		list(APPEND targetExtraLibs ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo")
+		list(APPEND targetExtraLibs ${SDL_LIB_TARGET})
 	elseif(USING_EGL)
-		list(APPEND nativeExtraLibs pthread ${SDL_LIB_TARGET})
+		list(APPEND targetExtraLibs pthread ${SDL_LIB_TARGET})
 	else()
-		list(APPEND nativeExtraLibs ${SDL_LIB_TARGET})
+		list(APPEND targetExtraLibs ${SDL_LIB_TARGET})
 	endif()
 endif()
 
@@ -1701,26 +1708,17 @@ if(ANDROID)
 	endif()
 
 	if (NOT LIBRETRO)
-		list(APPEND nativeExtra ${NativeAppSource})
+		list(APPEND targetExtra ${NativeAppSource})
 	endif()
 endif()
 
 if (IOS AND NOT LIBRETRO)
-	list(APPEND nativeExtra ${NativeAppSource})
+	list(APPEND targetExtra ${NativeAppSource})
 endif()
 
-add_library(native STATIC
-	${nativeExtra}
-	Common/Render/Text/draw_text_qt.cpp
-	Common/Render/Text/draw_text_qt.h
-	ext/jpge/jpgd.cpp
-	ext/jpge/jpgd.h
-	ext/jpge/jpge.cpp
-	ext/jpge/jpge.h
-)
-
 if(LIBRETRO)
-	target_include_directories(native PRIVATE libretro/libretro-common/include)
+	target_include_directories(core PRIVATE libretro/libretro-common/include)
+	target_include_directories(${TargetBin} PRIVATE libretro/libretro-common/include)
 endif()
 
 if(LINUX AND NOT ANDROID)
@@ -1730,20 +1728,6 @@ endif()
 set(ATOMIC_LIB)
 if(ANDROID OR (LINUX AND ARM_DEVICE) OR (LINUX AND RISCV64) OR (LINUX AND LOONGARCH64))
 	set(ATOMIC_LIB atomic)
-endif()
-
-target_link_libraries(native ${LIBZIP_LIBRARY} ${LIB7ZIP_LIBRARY} ${PNG_LIBRARIES} ${BASISU_LIBRARIES} ${ZLIB_LIBRARY} pugixml vma gason udis86 ${RT_LIB} ${nativeExtraLibs} ${ATOMIC_LIB} Common)
-
-if(TARGET Ext::GLEW)
-	target_link_libraries(native Ext::GLEW)
-endif()
-
-if(ANDROID)
-	target_link_libraries(native log EGL OpenSLES)
-elseif(WIN32)
-	target_link_libraries(native ws2_32 winmm)
-elseif(${CMAKE_SYSTEM_NAME} MATCHES "^(DragonFly|FreeBSD|NetBSD)$")
-	target_link_libraries(native execinfo)
 endif()
 
 add_library(kirk STATIC
@@ -1782,6 +1766,8 @@ add_library(xxhash STATIC
 	ext/xxhash.h
 )
 target_include_directories(xxhash PRIVATE ext/xxhash)
+
+target_link_libraries(Common ${LIBZIP_LIBRARY} ${LIB7ZIP_LIBRARY} ${PNG_LIBRARIES} ${BASISU_LIBRARIES} ${ZLIB_LIBRARY} pugixml vma gason udis86 ${RT_LIB} ${ATOMIC_LIB})
 
 set(CoreExtra)
 set(CoreExtraLibs)
@@ -2143,7 +2129,6 @@ endif()
 
 add_library(core STATIC
 	${CoreExtra}
-	${CommonJIT}
 	${CmdLine}
 	Core/Config.cpp
 	Core/Config.h
@@ -2623,7 +2608,7 @@ endif()
 if(USE_SYSTEM_ZSTD)
 	find_package(ZSTD REQUIRED)
 	target_include_directories(core PRIVATE ${ZSTD_INCLUDE_DIR})
-	target_link_libraries(core ${ZSTD_LIBRARY})
+	list(APPEND CoreExtraLibs ${ZSTD_LIBRARY})
 else()
 	add_subdirectory(ext/zstd-build)
 	list(APPEND CoreExtraLibs libzstd_static)
@@ -2639,7 +2624,7 @@ else()
 	include_directories(ext/libchdr/include)
 endif()
 
-target_link_libraries(core Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos minimp3 at3_standalone lua ${GlslangLibs}
+target_link_libraries(core Common chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos minimp3 at3_standalone lua ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 
 # Winsock
@@ -2793,7 +2778,7 @@ add_dependencies(core GitVersion)
 
 if(ANDROID AND NOT LIBRETRO)
 	add_library(ppsspp_jni SHARED ${AndroidJniSource})
-	target_link_libraries(ppsspp_jni core)
+	target_link_libraries(ppsspp_jni core native)
 	if(ARM64)
 		# Support 16kb page size on Android
 		target_link_options(ppsspp_jni PRIVATE "-Wl,-z,max-page-size=16384")
@@ -2900,7 +2885,7 @@ set(WindowsFiles
 	Windows/stdafx.h
 )
 
-list(APPEND LinkCommon core ${CMAKE_THREAD_LIBS_INIT})
+list(APPEND LinkCommon ${CMAKE_THREAD_LIBS_INIT})
 
 if(WIN32)
 	#setup_target_project(${TargetBin} Windows)
@@ -2974,7 +2959,7 @@ if(HEADLESS)
 		)
 	endif()
 	add_executable(PPSSPPHeadless ${HeadlessSource})
-	target_link_libraries(PPSSPPHeadless ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon})
+	target_link_libraries(PPSSPPHeadless ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon} Common core)
 	if(WIN32)
 		target_link_libraries(PPSSPPHeadless d2d1 dwrite d3d11)
 	endif()
@@ -3005,7 +2990,7 @@ if(UNITTEST)
 			Windows/CaptureDevice.h
 		)
 	endif()
-	target_link_libraries(PPSSPPUnitTest ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon} Common)
+	target_link_libraries(PPSSPPUnitTest ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon} Common core)
 	if(WIN32)
 		target_link_libraries(PPSSPPUnitTest d2d1 dwrite d3d11)
 	endif()
@@ -3112,10 +3097,25 @@ if(TargetBin)
 	else()
 		add_executable(${TargetBin} ${NativeAppSource})
 	endif()
+	if(targetExtra)
+		target_sources(${TargetBin} PRIVATE ${targetExtra})
+	endif()
 	if(ANDROID AND ARM64)
 		target_link_options(${TargetBin} PRIVATE "-Wl,-z,max-page-size=16384")
 	endif()
-	target_link_libraries(${TargetBin} ${LinkCommon} Common)
+	target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} Common core )
+endif()
+
+if(TARGET Ext::GLEW)
+	target_link_libraries(${TargetBin} Ext::GLEW)
+endif()
+
+if(ANDROID)
+	target_link_libraries(${TargetBin} log EGL OpenSLES)
+elseif(WIN32)
+	target_link_libraries(${TargetBin} ws2_32 winmm)
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "^(DragonFly|FreeBSD|NetBSD)$")
+	target_link_libraries(${TargetBin} execinfo)
 endif()
 
 # installs

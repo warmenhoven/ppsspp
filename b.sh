@@ -73,6 +73,9 @@ do
 		--debug)
 			CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Debug ${CMAKE_ARGS}"
 			;;
+		--build)
+			# Compatibility flag: build is the default action of this script.
+			;;
 		--reldebug)
 			CMAKE_ARGS="-DCMAKE_BUILD_TYPE=RelWithDebInfo ${CMAKE_ARGS}"
 			;;
