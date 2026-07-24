@@ -6,9 +6,9 @@
 // Currently supports: Android, Linux, Windows, Mac OSX
 
 #include "ppsspp_config.h"
+
 #include <QApplication>
 #include <QClipboard>
-#include <QDesktopWidget>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -17,6 +17,8 @@
 #include <QScreen>
 #include <QThread>
 #include <QUrl>
+#include <QAbstractVideoSurface>
+#include <QCameraInfo>
 
 #include "ext/glslang/glslang/Public/ShaderLang.h"
 
@@ -209,6 +211,21 @@ std::string System_GetProperty(SystemProperty prop) {
 	}
 }
 
+class MyViewfinder : public QAbstractVideoSurface {
+	Q_OBJECT
+public:
+	QList<QVideoFrame::PixelFormat> supportedPixelFormats(QAbstractVideoBuffer::HandleType handleType) const;
+	bool present(const QVideoFrame &frame);
+};
+
+static int        qtc_ideal_width;
+static int        qtc_ideal_height;
+static QCamera *qt_camera;
+static QAbstractVideoSurface *qt_viewfinder;
+
+int __qt_startCapture(int width, int height);
+int __qt_stopCapture();
+
 std::vector<std::string> __qt_getDeviceList() {
 	std::vector<std::string> deviceList;
 	const QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
@@ -268,8 +285,10 @@ int __qt_startCapture(int width, int height) {
 		return -1;
 	}
 
-	char selectedCamera[80];
-	sscanf(g_Config.sCameraDevice.c_str(), "%80s ", &selectedCamera[0]);
+	char selectedCamera[81]{};
+	if (sscanf(g_Config.sCameraDevice.c_str(), "%80s ", &selectedCamera[0]) != 1) {
+		selectedCamera[0] = '\0';
+	}
 
 	const QList<QCameraInfo> availableCameras = QCameraInfo::availableCameras();
 	if (availableCameras.size() < 1) {
@@ -809,7 +828,13 @@ bool MainUI::event(QEvent *e) {
 		NativeTouch(input);
 		break;
 	case QEvent::Wheel:
-		NativeKey(KeyInput(DEVICE_ID_MOUSE, ((QWheelEvent*)e)->delta()<0 ? NKCODE_EXT_MOUSEWHEEL_DOWN : NKCODE_EXT_MOUSEWHEEL_UP, KeyInputFlags::DOWN));
+		{
+			const QPoint wheelDelta = ((QWheelEvent *)e)->angleDelta();
+			const int delta = wheelDelta.y() != 0 ? wheelDelta.y() : wheelDelta.x();
+			if (delta != 0) {
+				NativeKey(KeyInput(DEVICE_ID_MOUSE, delta < 0 ? NKCODE_EXT_MOUSEWHEEL_DOWN : NKCODE_EXT_MOUSEWHEEL_UP, KeyInputFlags::DOWN));
+			}
+		}
 		break;
 	case QEvent::KeyPress:
 		{
@@ -994,9 +1019,6 @@ int main(int argc, char *argv[])
 
 	PROFILE_INIT();
 	glslang::InitializeProcess();
-#if defined(Q_OS_LINUX)
-	QApplication::setAttribute(Qt::AA_X11InitThreads, true);
-#endif
 
 	// Qt would otherwise default to a 3.0 compatibility profile
 	// except on Nvidia, where Nvidia gives us the highest supported anyway
@@ -1050,3 +1072,5 @@ int main(int argc, char *argv[])
 	glslang::FinalizeProcess();
 	return ret;
 }
+
+#include "QtMain.moc"

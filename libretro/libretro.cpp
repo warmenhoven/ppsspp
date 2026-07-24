@@ -2025,15 +2025,11 @@ void System_AudioPushSamples(const int32_t *audio, int numSamples, float volume)
 void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
 void System_AudioClear() {}
 #if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS)
-std::vector<std::string> System_GetCameraDeviceList() { return std::vector<std::string>(); }
 bool System_AudioRecordingIsAvailable() { return false; }
 bool System_AudioRecordingState() { return false; }
-#else
-// Stub for now.
-std::vector<std::string> System_GetCameraDeviceList() {
-   return std::vector<std::string>();
-}
 #endif
+// Stub for now.
+std::vector<std::string> System_GetCameraDeviceList() { return std::vector<std::string>(); }
 
 // TODO: To avoid having to define these here, these should probably be turned into system "requests".
 bool NativeSaveSecret(std::string_view nameOfSecret, std::string_view data) { return false; }

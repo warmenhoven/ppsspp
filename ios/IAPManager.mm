@@ -6,6 +6,8 @@
 
 #include "../ppsspp_config.h"
 
+#if PPSSPP_PLATFORM(IOS_APP_STORE)
+
 // Only one operation can be in progress at once.
 @implementation IAPManager {
 #ifdef USE_IAP
@@ -229,3 +231,5 @@ static bool SafeStringEqual(NSString *a, NSString *b) {
 #endif
 
 @end
+
+#endif

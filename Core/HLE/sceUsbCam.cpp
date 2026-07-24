@@ -332,14 +332,9 @@ std::vector<std::string> Camera::getDeviceList() {
 		if (winCamera) {
 			return winCamera->getDeviceList();
 		}
-	#elif PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS)
+	#else
 		return System_GetCameraDeviceList();
-	#elif defined(USING_QT_UI) // Qt:macOS / Qt:Linux
-		return System_GetCameraDeviceList();
-	#elif PPSSPP_PLATFORM(LINUX) // SDL:Linux
-		return __v4l_getDeviceList();
 	#endif
-	return std::vector<std::string>();
 }
 
 int Camera::startCapture() {
@@ -361,9 +356,6 @@ int Camera::startCapture() {
 		char command[40] = {0};
 		snprintf(command, sizeof(command), "startVideo_%dx%d", width, height);
 		System_CameraCommand(command);
-	#elif PPSSPP_PLATFORM(LINUX)
-		__v4l_startCapture(width, height);
-	#else
 		ERROR_LOG(Log::HLE, "%s not implemented", __FUNCTION__);
 	#endif
 	return 0;
@@ -375,10 +367,8 @@ int Camera::stopCapture() {
 		if (winCamera) {
 			winCamera->sendMessage({ CAPTUREDEVICE_COMMAND::STOP, nullptr });
 		}
-#elif PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS) || defined(USING_QT_UI)
+	#elif PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS) || defined(USING_QT_UI)
 		System_CameraCommand("stopVideo");
-	#elif PPSSPP_PLATFORM(LINUX)
-		__v4l_stopCapture();
 	#else
 		ERROR_LOG(Log::HLE, "%s not implemented", __FUNCTION__);
 	#endif

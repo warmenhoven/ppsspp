@@ -561,66 +561,6 @@ endmacro()
 
 add_subdirectory(ext)
 
-set(CommonJIT
-	Core/MIPS/JitCommon/JitCommon.cpp
-	Core/MIPS/JitCommon/JitCommon.h
-	Core/MIPS/JitCommon/JitBlockCache.cpp
-	Core/MIPS/JitCommon/JitBlockCache.h
-	Core/MIPS/JitCommon/JitState.cpp
-	Core/MIPS/JitCommon/JitState.h
-)
-
-set(CommonX86
-	Common/ABI.cpp
-	Common/ABI.h
-	Common/CPUDetect.cpp
-	Common/CPUDetect.h
-	Common/Thunk.cpp
-	Common/Thunk.h
-	Common/x64Analyzer.cpp
-	Common/x64Analyzer.h
-	Common/x64Emitter.cpp
-	Common/x64Emitter.h
-)
-source_group(x86 FILES ${CommonX86})
-
-set(CommonARM
-	Common/ArmCPUDetect.cpp
-	Common/ArmEmitter.h
-	Common/ArmEmitter.cpp
-)
-source_group(ARM FILES ${CommonARM})
-
-set(CommonARM64
-	Common/Arm64Emitter.h
-	Common/Arm64Emitter.cpp
-	Common/ArmEmitter.h
-	Common/ArmEmitter.cpp
-	Core/Util/DisArm64.h
-	Core/Util/DisArm64.cpp
-)
-source_group(ARM64 FILES ${CommonARM64})
-
-set(CommonRISCV64
-	${CommonJIT}
-	Common/RiscVCPUDetect.cpp
-	Common/RiscVEmitter.cpp
-	Common/RiscVEmitter.h
-	Core/MIPS/fake/FakeJit.cpp
-	Core/MIPS/fake/FakeJit.h
-)
-source_group(RISCV64 FILES ${CommonRISCV64})
-
-set(CommonLOONGARCH64
-	${CommonJIT}
-	Common/LoongArchCPUDetect.cpp
-	Common/LoongArch64Emitter.cpp
-	Common/LoongArch64Emitter.h
-	Core/MIPS/fake/FakeJit.cpp
-	Core/MIPS/fake/FakeJit.h
-)
-source_group(LOONGARCH64 FILES ${CommonLOONGARCH64})
-
 if(WIN32)
 	set(CommonD3D
 		Common/GPU/D3D11/thin3d_d3d11.cpp
@@ -651,11 +591,29 @@ include_directories(ext/OpenXR-SDK/include)
 include_directories(ext)
 
 add_library(Common STATIC
-	${CommonX86}
-	${CommonARM}
-	${CommonARM64}
-	${CommonRISCV64}
-	${CommonLOONGARCH64}
+	Common/ABI.cpp
+	Common/ABI.h
+	Common/CPUDetect.cpp
+	Common/CPUDetect.h
+	Common/Thunk.cpp
+	Common/Thunk.h
+	Common/x64Analyzer.cpp
+	Common/x64Analyzer.h
+	Common/x64Emitter.cpp
+	Common/x64Emitter.h
+	Common/ArmCPUDetect.cpp
+	Common/ArmEmitter.h
+	Common/ArmEmitter.cpp
+	Common/Arm64Emitter.h
+	Common/Arm64Emitter.cpp
+	Common/ArmEmitter.h
+	Common/ArmEmitter.cpp
+	Common/RiscVCPUDetect.cpp
+	Common/RiscVEmitter.cpp
+	Common/RiscVEmitter.h
+	Common/LoongArchCPUDetect.cpp
+	Common/LoongArch64Emitter.cpp
+	Common/LoongArch64Emitter.h
 	${CommonD3D}
 	${CommonVR}
 	Common/Serialize/Serializer.cpp
@@ -857,8 +815,6 @@ add_library(Common STATIC
 	Common/Render/Text/draw_text.h
 	Common/Render/Text/draw_text_android.cpp
 	Common/Render/Text/draw_text_android.h
-	Common/Render/Text/draw_text_sdl.cpp
-	Common/Render/Text/draw_text_sdl.h
 	Common/Render/Text/draw_text_win.cpp
 	Common/Render/Text/draw_text_win.h
 	Common/Render/Text/draw_text_uwp.cpp
@@ -1455,9 +1411,12 @@ elseif(IOS AND NOT LIBRETRO)
 
 	# TODO: Enable arc globally?
 	set_source_files_properties(ios/AppDelegate.mm
+		ios/SceneDelegate.mm
+		ios/ViewControllerCommon.mm
 		ios/ViewController.mm
 		ios/ViewControllerMetal.mm
 		ios/iOSCoreAudio.mm
+		ios/IAPManager.mm
 		ios/PPSSPPUIApplication.mm
 		ios/iCade/iCadeReaderView.m
 		ios/main.mm
@@ -1561,9 +1520,10 @@ else()
 			UI/PSPNSApplicationDelegate.mm
 			UI/PSPNSApplicationDelegate.h)
 
-		set_source_files_properties(Core/Util/DarwinFileSystemServices.mm
+		set_source_files_properties(
+			Core/Util/DarwinFileSystemServices.mm
 			UI/PSPNSApplicationDelegate.mm
-			SDL/CocoaMetalLayer.mm
+			SDL/SDLCocoaMetalLayer.mm
 			SDL/CocoaBarItems.mm
 			SDL/PPSSPPAboutViewController.m
 			SDL/MacCameraHelper.mm
@@ -1572,10 +1532,16 @@ else()
 			PROPERTIES COMPILE_FLAGS -fobjc-arc)
 		list(APPEND targetExtraLibs ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo")
 		list(APPEND targetExtraLibs ${SDL_LIB_TARGET})
-	elseif(USING_EGL)
-		list(APPEND targetExtraLibs pthread ${SDL_LIB_TARGET})
 	else()
+		list(APPEND targetExtra
+			Common/Render/Text/draw_text_sdl.cpp
+			Common/Render/Text/draw_text_sdl.h
+		)
 		list(APPEND targetExtraLibs ${SDL_LIB_TARGET})
+	endif()
+
+	if(USING_EGL AND NOT APPLE)
+		list(APPEND targetExtraLibs pthread)
 	endif()
 endif()
 
@@ -1720,11 +1686,6 @@ endif()
 
 if (IOS AND NOT LIBRETRO)
 	list(APPEND targetExtra ${NativeAppSource})
-endif()
-
-if(LIBRETRO)
-	target_include_directories(core PRIVATE libretro/libretro-common/include)
-	target_include_directories(${TargetBin} PRIVATE libretro/libretro-common/include)
 endif()
 
 if(LINUX AND NOT ANDROID)
@@ -2522,6 +2483,16 @@ add_library(core STATIC
 	Core/MIPS/MIPSAsm.h
 	Core/MIPS/MIPSTracer.cpp
 	Core/MIPS/MIPSTracer.h
+	Core/MIPS/JitCommon/JitCommon.cpp
+	Core/MIPS/JitCommon/JitCommon.h
+	Core/MIPS/JitCommon/JitBlockCache.cpp
+	Core/MIPS/JitCommon/JitBlockCache.h
+	Core/MIPS/JitCommon/JitState.cpp
+	Core/MIPS/JitCommon/JitState.h
+	Core/Util/DisArm64.h
+	Core/Util/DisArm64.cpp
+	Core/MIPS/fake/FakeJit.cpp
+	Core/MIPS/fake/FakeJit.h
 	Core/MemFault.cpp
 	Core/MemFault.h
 	Core/MemMap.cpp
@@ -2897,8 +2868,6 @@ set(WindowsFiles
 	Windows/stdafx.h
 )
 
-list(APPEND LinkCommon ${CMAKE_THREAD_LIBS_INIT})
-
 if(WIN32)
 	#setup_target_project(${TargetBin} Windows)
 	list(APPEND NativeAppSource ${WindowsFiles})
@@ -2954,6 +2923,19 @@ if(HEADLESS)
 		headless/SDLHeadlessHost.cpp
 		headless/SDLHeadlessHost.h
 	)
+	if(APPLE)
+		list(APPEND HeadlessSource
+			Common/Render/Text/draw_text_cocoa.mm
+			Common/Render/Text/draw_text_cocoa.h
+		)
+		set_source_files_properties(Common/Render/Text/draw_text_cocoa.mm
+			PROPERTIES COMPILE_FLAGS -fobjc-arc)
+	elseif(SDL_TTF_LIB_TARGET AND NOT WIN32)
+		list(APPEND HeadlessSource
+			Common/Render/Text/draw_text_sdl.cpp
+			Common/Render/Text/draw_text_sdl.h
+		)
+	endif()
 	if(WIN32)
 		list(APPEND HeadlessSource
 			headless/WindowsHeadlessHost.cpp
@@ -2971,7 +2953,16 @@ if(HEADLESS)
 		)
 	endif()
 	add_executable(PPSSPPHeadless ${HeadlessSource})
-	target_link_libraries(PPSSPPHeadless ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon} Common core)
+	target_link_libraries(PPSSPPHeadless ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${CMAKE_THREAD_LIBS_INIT} core)
+	if(SDL_LIB_TARGET)
+		target_link_libraries(PPSSPPHeadless ${SDL_LIB_TARGET})
+	endif()
+	if(SDL_TTF_LIB_TARGET)
+		target_link_libraries(PPSSPPHeadless ${SDL_TTF_LIB_TARGET})
+	endif()
+	if(FONTCONFIG_LIB_TARGET)
+		target_link_libraries(PPSSPPHeadless ${FONTCONFIG_LIB_TARGET})
+	endif()
 	if(WIN32)
 		target_link_libraries(PPSSPPHeadless d2d1 dwrite d3d11)
 	endif()
@@ -2996,13 +2987,35 @@ if(UNITTEST)
 		Core/MIPS/ARM/ArmRegCache.cpp
 		Core/MIPS/ARM/ArmRegCacheFPU.cpp
 	)
+	if(APPLE)
+		target_sources(PPSSPPUnitTest PRIVATE
+			Common/Render/Text/draw_text_cocoa.mm
+			Common/Render/Text/draw_text_cocoa.h
+		)
+		set_source_files_properties(Common/Render/Text/draw_text_cocoa.mm
+			PROPERTIES COMPILE_FLAGS -fobjc-arc)
+	elseif(SDL_TTF_LIB_TARGET AND NOT WIN32)
+		target_sources(PPSSPPUnitTest PRIVATE
+			Common/Render/Text/draw_text_sdl.cpp
+			Common/Render/Text/draw_text_sdl.h
+		)
+	endif()
 	if(WIN32)
 		target_sources(PPSSPPUnitTest PRIVATE
 			Windows/CaptureDevice.cpp
 			Windows/CaptureDevice.h
 		)
 	endif()
-	target_link_libraries(PPSSPPUnitTest ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${LinkCommon} Common core)
+	target_link_libraries(PPSSPPUnitTest ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY} ${CMAKE_THREAD_LIBS_INIT} Common core)
+	if(SDL_LIB_TARGET)
+		target_link_libraries(PPSSPPUnitTest ${SDL_LIB_TARGET})
+	endif()
+	if(SDL_TTF_LIB_TARGET)
+		target_link_libraries(PPSSPPUnitTest ${SDL_TTF_LIB_TARGET})
+	endif()
+	if(FONTCONFIG_LIB_TARGET)
+		target_link_libraries(PPSSPPUnitTest ${FONTCONFIG_LIB_TARGET})
+	endif()
 	if(WIN32)
 		target_link_libraries(PPSSPPUnitTest d2d1 dwrite d3d11)
 	endif()
@@ -3037,7 +3050,7 @@ if(ATLAS_TOOL)
 		ext/native/tools/atlastool.cpp
 	)
 	add_executable(AtlasTool ${AtlasToolSource})
-	target_link_libraries(AtlasTool ${LinkCommon} freetype)
+	target_link_libraries(AtlasTool ${CMAKE_THREAD_LIBS_INIT} freetype)
 	setup_target_project(AtlasTool atlastool)
 endif()
 
@@ -3116,18 +3129,20 @@ if(TargetBin)
 		target_link_options(${TargetBin} PRIVATE "-Wl,-z,max-page-size=16384")
 	endif()
 	if(TARGET ppsspp_ui)
-		target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} ppsspp_ui)
+		target_link_libraries(${TargetBin} ${CMAKE_THREAD_LIBS_INIT} ${targetExtraLibs} ppsspp_ui)
 	else()
-		target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} core)
+		target_link_libraries(${TargetBin} ${CMAKE_THREAD_LIBS_INIT} ${targetExtraLibs} core)
 	endif()
 endif()
 
-if(ANDROID)
-	target_link_libraries(${TargetBin} log EGL OpenSLES)
-elseif(WIN32)
-	target_link_libraries(${TargetBin} ws2_32 winmm)
-elseif(${CMAKE_SYSTEM_NAME} MATCHES "^(DragonFly|FreeBSD|NetBSD)$")
-	target_link_libraries(${TargetBin} execinfo)
+if(TargetBin)
+	if(ANDROID)
+		target_link_libraries(${TargetBin} log EGL OpenSLES)
+	elseif(WIN32)
+		target_link_libraries(${TargetBin} ws2_32 winmm)
+	elseif(${CMAKE_SYSTEM_NAME} MATCHES "^(DragonFly|FreeBSD|NetBSD)$")
+		target_link_libraries(${TargetBin} execinfo)
+	endif()
 endif()
 
 # installs
