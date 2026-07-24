@@ -2757,12 +2757,9 @@ add_dependencies(core GitVersion)
 
 if(ANDROID AND NOT LIBRETRO)
 	add_library(ppsspp_jni SHARED ${AndroidJniSource})
-	target_link_libraries(ppsspp_jni core)
+	target_link_libraries(ppsspp_jni core log EGL OpenSLES)
 	if(TARGET ppsspp_ui)
 		target_link_libraries(ppsspp_jni ppsspp_ui)
-	endif()
-	if(TARGET native)
-		target_link_libraries(ppsspp_jni native)
 	endif()
 	if(ARM64)
 		# Support 16kb page size on Android

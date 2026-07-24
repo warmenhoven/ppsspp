@@ -274,12 +274,6 @@ void NativeGetAppInfo(std::string *app_dir_name, std::string *app_nice_name, boo
 	*app_dir_name = "ppsspp";
 	*landscape = true;
 	*version = PPSSPP_GIT_VERSION;
-
-#if PPSSPP_ARCH(ARM) && defined(__ANDROID__)
-	ArmEmitterTest();
-#elif PPSSPP_ARCH(ARM64) && defined(__ANDROID__)
-	Arm64EmitterTest();
-#endif
 }
 
 #if defined(USING_WIN_UI) && !PPSSPP_PLATFORM(UWP)
