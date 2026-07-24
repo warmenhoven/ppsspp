@@ -268,14 +268,6 @@ if(ANDROID)
 	set(USING_GLES2 ON)
 endif()
 
-if(ANDROID AND NOT LIBRETRO)
-	set(CoreLibName ppsspp_jni)
-	set(CoreLinkType SHARED)
-else()
-	set(CoreLibName Core)
-	set(CoreLinkType STATIC)
-endif()
-
 if(NOT ANDROID AND NOT WIN32 AND (NOT APPLE OR IOS))
 	set(HTTPS_NOT_AVAILABLE ON)
 endif()
@@ -1399,7 +1391,7 @@ if(IOS OR MACOSX)
 endif()
 
 if(ANDROID)
-	list(APPEND NativeAppSource
+	list(APPEND AndroidJniSource
 		android/jni/app-android.cpp
 		android/jni/AndroidJavaGLContext.cpp
 		android/jni/AndroidJavaGLContext.h
@@ -1480,6 +1472,9 @@ elseif(IOS AND LIBRETRO)
 elseif(USING_QT_UI)
 	set(CMAKE_AUTOMOC ON)
 	find_package(Qt5 COMPONENTS OpenGL Gui Core Multimedia)
+	if(NOT Qt5_FOUND)
+		message(FATAL_ERROR "Qt5 not found for USING_QT_UI=ON. On macOS with Homebrew, install qt@5 and set CMAKE_PREFIX_PATH to /opt/homebrew/opt/qt@5 (or use ./b.sh --qtbrew).")
+	endif()
 	list(APPEND NativeAppSource
 		Qt/QtMain.cpp
 		Qt/QtMain.h
@@ -2146,9 +2141,7 @@ if(NOT LIBRETRO)
     )
 endif()
 
-# 'ppsspp_jni' on ANDROID, 'Core' everywhere else
-# SHARED on ANDROID, STATIC everywhere else
-add_library(${CoreLibName} ${CoreLinkType}
+add_library(core STATIC
 	${CoreExtra}
 	${CommonJIT}
 	${CmdLine}
@@ -2596,7 +2589,7 @@ if((MACOSX OR IOS) AND NOT LIBRETRO)
 endif()
 
 if(LIBRETRO)
-	target_include_directories(${CoreLibName} PRIVATE libretro/libretro-common/include)
+	target_include_directories(core PRIVATE libretro/libretro-common/include)
 endif()
 
 if(ANDROID)
@@ -2629,8 +2622,8 @@ endif()
 
 if(USE_SYSTEM_ZSTD)
 	find_package(ZSTD REQUIRED)
-	target_include_directories(${CoreLibName} PRIVATE ${ZSTD_INCLUDE_DIR})
-	target_link_libraries(${CoreLibName} ${ZSTD_LIBRARY})
+	target_include_directories(core PRIVATE ${ZSTD_INCLUDE_DIR})
+	target_link_libraries(core ${ZSTD_LIBRARY})
 else()
 	add_subdirectory(ext/zstd-build)
 	list(APPEND CoreExtraLibs libzstd_static)
@@ -2646,28 +2639,28 @@ else()
 	include_directories(ext/libchdr/include)
 endif()
 
-target_link_libraries(${CoreLibName} Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos minimp3 at3_standalone lua ${GlslangLibs}
+target_link_libraries(core Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos minimp3 at3_standalone lua ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 
 # Winsock
 if(WIN32)
-	target_link_libraries(${CoreLibName} ws2_32)
+	target_link_libraries(core ws2_32)
 endif()
 
 if(NOT HTTPS_NOT_AVAILABLE)
-	target_link_libraries(${CoreLibName} naett)
+	target_link_libraries(core naett)
 endif()
 
-target_compile_features(${CoreLibName} PUBLIC cxx_std_17)
+target_compile_features(core PUBLIC cxx_std_17)
 
 if(FFmpeg_FOUND)
-	target_compile_definitions(${CoreLibName} PRIVATE USE_FFMPEG=1)
+	target_compile_definitions(core PRIVATE USE_FFMPEG=1)
 	if (HAVE_LIBAVCODEC_CONST_AVCODEC)
-		target_compile_definitions(${CoreLibName} PRIVATE HAVE_LIBAVCODEC_CONST_AVCODEC=1)
+		target_compile_definitions(core PRIVATE HAVE_LIBAVCODEC_CONST_AVCODEC=1)
 	endif()
-	set_target_properties(${CoreLibName} PROPERTIES NO_SYSTEM_FROM_IMPORTED true)
-	target_include_directories(${CoreLibName} BEFORE PUBLIC ${FFmpeg_INCLUDE_avcodec} ${FFmpeg_INCLUDE_avformat})
-	target_link_libraries(${CoreLibName}
+	set_target_properties(core PROPERTIES NO_SYSTEM_FROM_IMPORTED true)
+	target_include_directories(core BEFORE PUBLIC ${FFmpeg_INCLUDE_avcodec} ${FFmpeg_INCLUDE_avformat})
+	target_link_libraries(core
 		FFmpeg::avcodec
 		FFmpeg::avformat
 		FFmpeg::avutil
@@ -2676,9 +2669,9 @@ if(FFmpeg_FOUND)
 		${ZLIB_LIBRARY}
 	)
 elseif(BUILD_BUNDLED_FFMPEG)
-	target_compile_definitions(${CoreLibName} PRIVATE USE_FFMPEG=1)
-	set_target_properties(${CoreLibName} PROPERTIES NO_SYSTEM_FROM_IMPORTED true)
-	target_link_libraries(${CoreLibName}
+	target_compile_definitions(core PRIVATE USE_FFMPEG=1)
+	set_target_properties(core PROPERTIES NO_SYSTEM_FROM_IMPORTED true)
+	target_link_libraries(core
 		avcodec
 		avformat
 		avutil
@@ -2691,15 +2684,15 @@ endif()
 # Discord integration
 if(USE_DISCORD AND NOT IOS AND NOT LIBRETRO)
 	add_compile_definitions(USE_DISCORD=1)
-	target_link_libraries(${CoreLibName} discord-rpc)
+	target_link_libraries(core discord-rpc)
 endif()
 
 # miniUPnPc integration (MiniUPnPc supposed to works on any POSIX system, not sure if some of these are redundant/not needed tho)
 if(USE_MINIUPNPC)
 	if(USE_SYSTEM_MINIUPNPC)
 		find_package(MINIUPNPC REQUIRED)
-		target_include_directories(${CoreLibName} PRIVATE ${MINIUPNP_INCLUDE_DIR})
-		target_link_libraries(${CoreLibName} ${MINIUPNP_LIBRARY})
+		target_include_directories(core PRIVATE ${MINIUPNP_INCLUDE_DIR})
+		target_link_libraries(core ${MINIUPNP_LIBRARY})
 		add_compile_definitions(WITH_UPNP USE_SYSTEM_MINIUPNPC)
 	else()
 		set (MINIUPNPC_VERSION 2.2) # used by miniupnpcstrings.h.cmake
@@ -2764,7 +2757,7 @@ if(USE_MINIUPNPC)
 		endif()
 		if (UPNPC_BUILD_STATIC)
 			add_library(miniupnpc STATIC ${MINIUPNPC_SOURCES})
-			target_link_libraries(${CoreLibName} miniupnpc ${LDLIBS})
+			target_link_libraries(core miniupnpc ${LDLIBS})
 			set(UPNPC_LIBRARY miniupnpc)
 			if (MSVC)
 				# Suppress noise warnings
@@ -2777,7 +2770,7 @@ if(USE_MINIUPNPC)
 	endif()
 endif()
 
-setup_target_project(${CoreLibName} Core)
+setup_target_project(core Core)
 
 # Generate git-version at build time.
 add_custom_target(GitVersion DEPENDS something_that_never_exists)
@@ -2796,7 +2789,16 @@ add_custom_command(OUTPUT something_that_never_exists
 set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/git-version.cpp
 	PROPERTIES GENERATED TRUE
 	SKIP_AUTOMOC ON)
-add_dependencies(${CoreLibName} GitVersion)
+add_dependencies(core GitVersion)
+
+if(ANDROID AND NOT LIBRETRO)
+	add_library(ppsspp_jni SHARED ${AndroidJniSource})
+	target_link_libraries(ppsspp_jni core)
+	if(ARM64)
+		# Support 16kb page size on Android
+		target_link_options(ppsspp_jni PRIVATE "-Wl,-z,max-page-size=16384")
+	endif()
+endif()
 
 set(WindowsFiles
 	Windows/WindowsAudio.cpp
@@ -2898,12 +2900,7 @@ set(WindowsFiles
 	Windows/stdafx.h
 )
 
-if(ANDROID AND ARM64)
-	# Support 16kb page size on Android
-	target_link_options(${CoreLibName} PRIVATE "-Wl,-z,max-page-size=16384")
-endif()
-
-list(APPEND LinkCommon ${CoreLibName} ${CMAKE_THREAD_LIBS_INIT})
+list(APPEND LinkCommon core ${CMAKE_THREAD_LIBS_INIT})
 
 if(WIN32)
 	#setup_target_project(${TargetBin} Windows)
