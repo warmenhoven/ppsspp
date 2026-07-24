@@ -47,7 +47,6 @@ void __cameraDummyImage(int width, int height, unsigned char** outData, int* out
 	static QCamera *qt_camera;
 	static QAbstractVideoSurface *qt_viewfinder;
 
-	std::vector<std::string> __qt_getDeviceList();
 	int __qt_startCapture(int width, int height);
 	int __qt_stopCapture();
 

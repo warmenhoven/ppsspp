@@ -209,6 +209,120 @@ std::string System_GetProperty(SystemProperty prop) {
 	}
 }
 
+std::vector<std::string> __qt_getDeviceList() {
+	std::vector<std::string> deviceList;
+	const QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+	for (const QCameraInfo &cameraInfo : cameras) {
+		deviceList.push_back(cameraInfo.deviceName().toStdString()
+			+ " (" + cameraInfo.description().toStdString() + ")");
+	}
+	return deviceList;
+}
+
+QList<QVideoFrame::PixelFormat> MyViewfinder::supportedPixelFormats(QAbstractVideoBuffer::HandleType handleType) const {
+	Q_UNUSED(handleType);
+	// Return the formats you will support
+	return QList<QVideoFrame::PixelFormat>()
+		<< QVideoFrame::Format_RGB24
+		<< QVideoFrame::Format_YUYV
+		;
+}
+
+bool MyViewfinder::present(const QVideoFrame &frame) {
+#ifdef USE_FFMPEG
+	if (frame.isValid()) {
+		QVideoFrame cloneFrame(frame);
+		cloneFrame.map(QAbstractVideoBuffer::ReadOnly);
+
+		unsigned char *jpegData = nullptr;
+		int jpegLen = 0;
+
+		QVideoFrame::PixelFormat frameFormat = cloneFrame.pixelFormat();
+		if (frameFormat == QVideoFrame::Format_RGB24) {
+			convert_frame(cloneFrame.size().width(), cloneFrame.size().height(),
+				(unsigned char*)cloneFrame.bits(), AV_PIX_FMT_RGB24,
+				qtc_ideal_width, qtc_ideal_height, &jpegData, &jpegLen);
+
+		} else if (frameFormat == QVideoFrame::Format_YUYV) {
+			convert_frame(cloneFrame.size().width(), cloneFrame.size().height(),
+				(unsigned char*)cloneFrame.bits(), AV_PIX_FMT_YUYV422,
+				qtc_ideal_width, qtc_ideal_height, &jpegData, &jpegLen);
+		}
+
+		if (jpegData) {
+			Camera::pushCameraImage(jpegLen, jpegData);
+			free(jpegData);
+			jpegData = nullptr;
+		}
+
+		cloneFrame.unmap();
+		return true;
+	}
+#endif //USE_FFMPEG
+	return false;
+}
+
+int __qt_startCapture(int width, int height) {
+	if (qt_camera != nullptr) {
+		ERROR_LOG(Log::HLE, "camera already started");
+		return -1;
+	}
+
+	char selectedCamera[80];
+	sscanf(g_Config.sCameraDevice.c_str(), "%80s ", &selectedCamera[0]);
+
+	const QList<QCameraInfo> availableCameras = QCameraInfo::availableCameras();
+	if (availableCameras.size() < 1) {
+		delete qt_camera;
+		qt_camera = nullptr;
+		ERROR_LOG(Log::HLE, "no camera found");
+		return -1;
+	}
+	for (const QCameraInfo &cameraInfo : availableCameras) {
+		if (cameraInfo.deviceName() == selectedCamera) {
+			qt_camera = new QCamera(cameraInfo);
+		}
+	}
+	if (qt_camera == nullptr) {
+		qt_camera = new QCamera();
+		if (qt_camera == nullptr) {
+			ERROR_LOG(Log::HLE, "cannot open camera");
+			return -1;
+		}
+	}
+
+	qtc_ideal_width = width;
+	qtc_ideal_height = height;
+
+	qt_viewfinder = new MyViewfinder;
+
+	QCameraViewfinderSettings viewfinderSettings = qt_camera->viewfinderSettings();
+	viewfinderSettings.setResolution(640, 480);
+	viewfinderSettings.setMinimumFrameRate(15.0);
+	viewfinderSettings.setMaximumFrameRate(15.0);
+
+	qt_camera->setViewfinderSettings(viewfinderSettings);
+	qt_camera->setViewfinder(qt_viewfinder);
+	qt_camera->start();
+
+	return 0;
+}
+
+int __qt_stopCapture() {
+	if (qt_camera != nullptr) {
+		qt_camera->stop();
+		qt_camera->unload();
+		delete qt_camera;
+		delete qt_viewfinder;
+		qt_camera = nullptr;
+	}
+	return 0;
+}
+
+std::vector<std::string> System_GetCameraDeviceList() {
+	return __qt_getDeviceList();
+}
+
 std::vector<std::string> System_GetPropertyStringVec(SystemProperty prop) {
 	std::vector<std::string> result;
 	switch (prop) {
