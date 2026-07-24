@@ -1382,6 +1382,7 @@ add_library(pugixml STATIC
 set(nativeExtra)
 set(targetExtra)
 set(targetExtraLibs)
+set(UISource)
 
 if(OPENXR AND NOT ARMV7_DEVICE)
 	list(APPEND targetExtraLibs openxr_loader)
@@ -1583,13 +1584,13 @@ if(WIN32)
 endif()
 
 if(NOT LIBRETRO)
-	list(APPEND NativeAppSource
+	list(APPEND UISource
 		UI/AudioCommon.h
 		UI/AudioCommon.cpp
 	)
 endif()
 
-list(APPEND NativeAppSource
+list(APPEND UISource
 	UI/ImDebugger/ImDebugger.cpp
 	UI/ImDebugger/ImDebugger.h
 	UI/ImDebugger/ImGe.cpp
@@ -1699,6 +1700,11 @@ list(APPEND NativeAppSource
 	UI/RetroAchievementScreens.cpp
 	UI/RetroAchievementScreens.h
 )
+
+if(NOT LIBRETRO)
+	add_library(ppsspp_ui STATIC ${UISource})
+	target_link_libraries(ppsspp_ui Common core)
+endif()
 
 if(ANDROID)
 	if(ARM)
@@ -2778,7 +2784,13 @@ add_dependencies(core GitVersion)
 
 if(ANDROID AND NOT LIBRETRO)
 	add_library(ppsspp_jni SHARED ${AndroidJniSource})
-	target_link_libraries(ppsspp_jni core native)
+	target_link_libraries(ppsspp_jni core)
+	if(TARGET ppsspp_ui)
+		target_link_libraries(ppsspp_jni ppsspp_ui)
+	endif()
+	if(TARGET native)
+		target_link_libraries(ppsspp_jni native)
+	endif()
 	if(ARM64)
 		# Support 16kb page size on Android
 		target_link_options(ppsspp_jni PRIVATE "-Wl,-z,max-page-size=16384")
@@ -3103,11 +3115,11 @@ if(TargetBin)
 	if(ANDROID AND ARM64)
 		target_link_options(${TargetBin} PRIVATE "-Wl,-z,max-page-size=16384")
 	endif()
-	target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} Common core )
-endif()
-
-if(TARGET Ext::GLEW)
-	target_link_libraries(${TargetBin} Ext::GLEW)
+	if(TARGET ppsspp_ui)
+		target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} ppsspp_ui)
+	else()
+		target_link_libraries(${TargetBin} ${LinkCommon} ${targetExtraLibs} core)
+	endif()
 endif()
 
 if(ANDROID)
