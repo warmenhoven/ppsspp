@@ -822,6 +822,7 @@ add_library(Common STATIC
 	Common/Audio/AudioBackend.h
 	Common/System/Display.cpp
 	Common/System/Display.h
+	Common/System/Application.h
 	Common/System/System.h
 	Common/System/NativeApp.h
 	Common/System/Request.cpp
@@ -1549,6 +1550,7 @@ if(WIN32)
 	target_link_libraries(Common winmm dsound dxguid d2d1 dwrite d3d11 Version)
 endif()
 
+set(UISource)
 if(NOT LIBRETRO)
 	list(APPEND UISource
 		UI/AudioCommon.h
