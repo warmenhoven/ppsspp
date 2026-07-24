@@ -56,6 +56,7 @@ SDLJoystick *joystick = NULL;
 #include "Common/Data/Encoding/Utf8.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/StringUtils.h"
+#include "Core/HW/Camera.h"
 #include "Core/System.h"
 #include "Core/Core.h"
 #include "Core/Config.h"
@@ -111,7 +112,374 @@ struct WindowState {
 };
 static WindowState g_windowState;
 
-int getDisplayNumber(void) {
+#if PPSSPP_PLATFORM(MAC)
+
+// These are from MacCameraHelper.mm.
+std::vector<std::string> __mac_getDeviceList();
+int __mac_startCapture(int width, int height);
+int __mac_stopCapture();
+
+#endif
+
+#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+
+#include "Core/HLE/sceUsbCam.h"
+
+#include "ext/jpge/jpgd.h"
+#include "ext/jpge/jpge.h"
+
+extern "C" {
+#ifdef USE_FFMPEG
+#include "libswscale/swscale.h"
+#include "libavutil/imgutils.h"
+#endif //USE_FFMPEG
+}
+
+#include <fcntl.h>
+#include <linux/videodev2.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+
+#include "Common/Thread/ThreadUtil.h"
+
+typedef struct {
+	void         *start;
+	int           length;
+} v4l_buf_t;
+
+static int        v4l_fd = -1;
+static uint32_t   v4l_format;
+static int        v4l_hw_width;
+static int        v4l_hw_height;
+static int        v4l_height_fixed_aspect;
+static int        v4l_ideal_width;
+static int        v4l_ideal_height;
+
+static pthread_t  v4l_thread;
+static int        v4l_buffer_count;
+static v4l_buf_t *v4l_buffers;
+
+std::vector<std::string> __v4l_getDeviceList();
+int __v4l_startCapture(int width, int height);
+int __v4l_stopCapture();
+
+
+#ifdef USE_FFMPEG
+void convert_frame(int inw, int inh, unsigned char *inData, AVPixelFormat inFormat,
+					int outw, int outh, unsigned char **outData, int *outLen) {
+	struct SwsContext *sws_context = sws_getContext(
+				inw, inh, inFormat,
+				outw, outh, AV_PIX_FMT_RGB24,
+				SWS_BICUBIC, NULL, NULL, NULL);
+
+	// resize
+	uint8_t *src[4] = {0};
+	uint8_t *dst[4] = {0};
+	int srcStride[4], dstStride[4];
+
+	unsigned char *rgbData = (unsigned char*)malloc(outw * outh * 4);
+
+	av_image_fill_linesizes(srcStride, inFormat,         inw);
+	av_image_fill_linesizes(dstStride, AV_PIX_FMT_RGB24, outw);
+
+	av_image_fill_pointers(src, inFormat,         inh,  inData,  srcStride);
+	av_image_fill_pointers(dst, AV_PIX_FMT_RGB24, outh, rgbData, dstStride);
+
+	sws_scale(sws_context,
+		src, srcStride, 0, inh,
+		dst, dstStride);
+
+	// compress jpeg
+	*outLen = outw * outh * 2;
+	*outData = (unsigned char*)malloc(*outLen);
+
+	jpge::params params;
+	params.m_quality = 60;
+	params.m_subsampling = jpge::H2V2;
+	params.m_two_pass_flag = false;
+	jpge::compress_image_to_jpeg_file_in_memory(
+		*outData, *outLen, outw, outh, 3, rgbData, params);
+	free(rgbData);
+}
+#endif //USE_FFMPEG
+
+
+
+#endif
+
+#if PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+
+std::vector<std::string> __v4l_getDeviceList() {
+	std::vector<std::string> deviceList;
+#ifdef USE_FFMPEG
+	for (int i = 0; i < 64; i++) {
+		char path[256];
+		snprintf(path, sizeof(path), "/dev/video%d", i);
+		if (access(path, F_OK) < 0) {
+			break;
+		}
+		int fd = -1;
+		if((fd = open(path, O_RDONLY)) < 0) {
+			ERROR_LOG(Log::HLE, "Cannot open '%s'; errno=%d(%s)", path, errno, strerror(errno));
+			continue;
+		}
+		struct v4l2_capability video_cap;
+		if(ioctl(fd, VIDIOC_QUERYCAP, &video_cap) < 0) {
+			ERROR_LOG(Log::HLE, "VIDIOC_QUERYCAP");
+			goto cont;
+		} else {
+			char device[256];
+			snprintf(device, sizeof(device), "%d:%s", i, video_cap.card);
+			deviceList.push_back(device);
+		}
+cont:
+		close(fd);
+		fd = -1;
+	}
+#endif //USE_FFMPEG
+	return deviceList;
+}
+
+void *v4l_loop(void *data) {
+#ifdef USE_FFMPEG
+	SetCurrentThreadName("v4l_loop");
+	while (v4l_fd >= 0) {
+		struct v4l2_buffer buf;
+		memset(&buf, 0, sizeof(buf));
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+
+		if (ioctl(v4l_fd, VIDIOC_DQBUF, &buf) == -1) {
+			ERROR_LOG(Log::HLE, "VIDIOC_DQBUF; errno=%d(%s)", errno, strerror(errno));
+			switch (errno) {
+			case EAGAIN:
+				continue;
+			default:
+				return nullptr;
+			}
+		}
+
+		unsigned char *jpegData = nullptr;
+		int jpegLen = 0;
+
+		if (v4l_format == V4L2_PIX_FMT_YUYV) {
+			convert_frame(v4l_hw_width, v4l_hw_height, (unsigned char*)v4l_buffers[buf.index].start, AV_PIX_FMT_YUYV422,
+				v4l_ideal_width, v4l_ideal_height, &jpegData, &jpegLen);
+		} else if (v4l_format == V4L2_PIX_FMT_JPEG
+				|| v4l_format == V4L2_PIX_FMT_MJPEG) {
+			// decompress jpeg
+			int width, height, req_comps;
+			unsigned char *rgbData = jpgd::decompress_jpeg_image_from_memory(
+				(unsigned char*)v4l_buffers[buf.index].start, buf.bytesused, &width, &height, &req_comps, 3);
+
+			convert_frame(v4l_hw_width, v4l_hw_height, (unsigned char*)rgbData, AV_PIX_FMT_RGB24,
+				v4l_ideal_width, v4l_ideal_height, &jpegData, &jpegLen);
+			free(rgbData);
+		}
+
+		if (jpegData) {
+			Camera::pushCameraImage(jpegLen, jpegData);
+			free(jpegData);
+			jpegData = nullptr;
+		}
+
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		if (ioctl(v4l_fd, VIDIOC_QBUF, &buf) == -1) {
+			ERROR_LOG(Log::HLE, "VIDIOC_QBUF");
+			return nullptr;
+		}
+	}
+#endif //USE_FFMPEG
+	return nullptr;
+}
+
+int __v4l_startCapture(int ideal_width, int ideal_height) {
+#ifdef USE_FFMPEG
+	if (v4l_fd >= 0) {
+		__v4l_stopCapture();
+	}
+	v4l_ideal_width  = ideal_width;
+	v4l_ideal_height = ideal_height;
+
+	int dev_index = 0;
+	char dev_name[64];
+	sscanf(g_Config.sCameraDevice.c_str(), "%d:", &dev_index);
+	snprintf(dev_name, sizeof(dev_name), "/dev/video%d", dev_index);
+
+	if ((v4l_fd = open(dev_name, O_RDWR)) == -1) {
+		ERROR_LOG(Log::HLE, "Cannot open '%s'; errno=%d(%s)", dev_name, errno, strerror(errno));
+		return -1;
+	}
+
+	struct v4l2_capability cap;
+	memset(&cap, 0, sizeof(cap));
+	if (ioctl(v4l_fd, VIDIOC_QUERYCAP, &cap) == -1) {
+		ERROR_LOG(Log::HLE, "VIDIOC_QUERYCAP");
+		return -1;
+	}
+	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+		ERROR_LOG(Log::HLE, "V4L2_CAP_VIDEO_CAPTURE");
+		return -1;
+	}
+	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
+		ERROR_LOG(Log::HLE, "V4L2_CAP_STREAMING");
+		return -1;
+	}
+
+	struct v4l2_format fmt;
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.fmt.pix.pixelformat = 0;
+
+	// select a pixel format
+	struct v4l2_fmtdesc desc;
+	memset(&desc, 0, sizeof(desc));
+	desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	while (ioctl(v4l_fd, VIDIOC_ENUM_FMT, &desc) == 0) {
+		desc.index++;
+		INFO_LOG(Log::HLE, "V4L2: pixel format supported: %s", desc.description);
+		if (fmt.fmt.pix.pixelformat != 0) {
+			continue;
+		} else if (desc.pixelformat == V4L2_PIX_FMT_YUYV
+				|| desc.pixelformat == V4L2_PIX_FMT_JPEG
+				|| desc.pixelformat == V4L2_PIX_FMT_MJPEG) {
+			INFO_LOG(Log::HLE, "V4L2: %s selected", desc.description);
+			fmt.fmt.pix.pixelformat = desc.pixelformat;
+			v4l_format              = desc.pixelformat;
+		}
+	}
+	if (fmt.fmt.pix.pixelformat == 0) {
+		ERROR_LOG(Log::HLE, "V4L2: No supported format found");
+		return -1;
+	}
+
+	// select a frame size
+	fmt.fmt.pix.width  = 0;
+	fmt.fmt.pix.height = 0;
+	struct v4l2_frmsizeenum frmsize;
+	memset(&frmsize, 0, sizeof(frmsize));
+	frmsize.pixel_format = fmt.fmt.pix.pixelformat;
+	while (ioctl(v4l_fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) == 0) {
+		frmsize.index++;
+		if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+			INFO_LOG(Log::HLE, "V4L2: frame size supported: %dx%d", frmsize.discrete.width, frmsize.discrete.height);
+			bool matchesIdeal = frmsize.discrete.width >= ideal_width && frmsize.discrete.height >= ideal_height;
+			bool zeroPix = fmt.fmt.pix.width == 0 && fmt.fmt.pix.height == 0;
+			bool pixLarger = frmsize.discrete.width < fmt.fmt.pix.width && frmsize.discrete.height < fmt.fmt.pix.height;
+			if (matchesIdeal && (zeroPix || pixLarger)) {
+				fmt.fmt.pix.width  = frmsize.discrete.width;
+				fmt.fmt.pix.height = frmsize.discrete.height;
+			}
+		}
+	}
+
+	if (fmt.fmt.pix.width == 0 && fmt.fmt.pix.height == 0) {
+		fmt.fmt.pix.width  = ideal_width;
+		fmt.fmt.pix.height = ideal_height;
+	}
+	INFO_LOG(Log::HLE, "V4L2: asking for   %dx%d", fmt.fmt.pix.width, fmt.fmt.pix.height);
+	if (ioctl(v4l_fd, VIDIOC_S_FMT, &fmt) == -1) {
+		ERROR_LOG(Log::HLE, "VIDIOC_S_FMT");
+		return -1;
+	}
+	v4l_hw_width  = fmt.fmt.pix.width;
+	v4l_hw_height = fmt.fmt.pix.height;
+	INFO_LOG(Log::HLE, "V4L2: will receive %dx%d", v4l_hw_width, v4l_hw_height);
+	v4l_height_fixed_aspect = v4l_hw_width * ideal_height / ideal_width;
+	INFO_LOG(Log::HLE, "V4L2: will use     %dx%d", v4l_hw_width, v4l_height_fixed_aspect);
+
+	struct v4l2_requestbuffers req;
+	memset(&req, 0, sizeof(req));
+	req.count  = 1;
+	req.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	req.memory = V4L2_MEMORY_MMAP;
+	if (ioctl(v4l_fd, VIDIOC_REQBUFS, &req) == -1) {
+		ERROR_LOG(Log::HLE, "VIDIOC_REQBUFS");
+		return -1;
+	}
+	v4l_buffer_count = req.count;
+	INFO_LOG(Log::HLE, "V4L2: buffer count: %d", v4l_buffer_count);
+	v4l_buffers = (v4l_buf_t*) calloc(v4l_buffer_count, sizeof(v4l_buf_t));
+
+	for (int buf_id = 0; buf_id < v4l_buffer_count; buf_id++) {
+		struct v4l2_buffer buf;
+		memset(&buf, 0, sizeof(buf));
+		buf.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		buf.index  = buf_id;
+		if (ioctl(v4l_fd, VIDIOC_QUERYBUF, &buf) == -1) {
+			ERROR_LOG(Log::HLE, "VIDIOC_QUERYBUF");
+			return -1;
+		}
+
+		v4l_buffers[buf_id].length = buf.length;
+		v4l_buffers[buf_id].start = mmap(NULL,
+				buf.length,
+				PROT_READ | PROT_WRITE,
+				MAP_SHARED,
+				v4l_fd, buf.m.offset);
+		if (v4l_buffers[buf_id].start == MAP_FAILED) {
+			ERROR_LOG(Log::HLE, "MAP_FAILED");
+			return -1;
+		}
+
+		memset(&buf, 0, sizeof(buf));
+		buf.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		buf.index  = buf_id;
+		if (ioctl(v4l_fd, VIDIOC_QBUF, &buf) == -1) {
+			ERROR_LOG(Log::HLE, "VIDIOC_QBUF");
+			return -1;
+		}
+	}
+
+	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (ioctl(v4l_fd, VIDIOC_STREAMON, &type) == -1) {
+		ERROR_LOG(Log::HLE, "VIDIOC_STREAMON");
+		return -1;
+	}
+
+	pthread_create(&v4l_thread, NULL, v4l_loop, NULL);
+#endif //USE_FFMPEG
+	return 0;
+}
+
+int __v4l_stopCapture() {
+	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+	if (v4l_fd < 0) {
+		goto exit;
+	}
+
+	if (ioctl(v4l_fd, VIDIOC_STREAMOFF, &type) == -1) {
+		ERROR_LOG(Log::HLE, "VIDIOC_STREAMOFF");
+		goto exit;
+	}
+
+	for (int buf_id = 0; buf_id < v4l_buffer_count; buf_id++) {
+		if (munmap(v4l_buffers[buf_id].start, v4l_buffers[buf_id].length) == -1) {
+			ERROR_LOG(Log::HLE, "munmap");
+			goto exit;
+		}
+	}
+
+	if (close(v4l_fd) == -1) {
+		ERROR_LOG(Log::HLE, "close");
+		goto exit;
+	}
+
+	v4l_fd = -1;
+	//pthread_join(v4l_thread, NULL);
+
+exit:
+	v4l_fd = -1;
+	return 0;
+}
+
+#endif // PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+
+static int getDisplayNumber(void) {
 	int displayNumber = 0;
 	char * displayNumberStr;
 
@@ -125,7 +493,7 @@ int getDisplayNumber(void) {
 	return displayNumber;
 }
 
-void sdl_mixaudio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount) {
+static void sdl_mixaudio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount) {
 	(void)total_amount;
 	if (additional_amount <= 0) {
 		return;
@@ -503,6 +871,28 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 #endif /* PPSSPP_PLATFORM(WINDOWS) */
 		return true;
 	}
+	case SystemRequestType::CAMERA_COMMAND:
+	{
+		if (!strncmp(param1.c_str(), "startVideo", 10)) {
+			int width = 0, height = 0;
+			sscanf(param1.c_str(), "startVideo_%dx%d", &width, &height);
+#if PPSSPP_PLATFORM(MAC)
+			__mac_startCapture(width, height);
+#elif PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+			__v4l_startCapture(width, height);
+#endif
+		} else if (!strcmp(param1.c_str(), "stopVideo")) {
+#if PPSSPP_PLATFORM(MAC)
+			__mac_stopCapture();
+#elif PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+			__v4l_stopCapture();
+#endif
+		} else {
+			ERROR_LOG(Log::System, "Unknown camera command: %s", param1.c_str());
+			return false;
+		}
+		return true;
+	}
 	case SystemRequestType::NOTIFY_UI_EVENT:
 	{
 		switch ((UIEventNotification)param3) {
@@ -531,6 +921,14 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 
 void System_AskForPermission(SystemPermission permission) {}
 PermissionStatus System_GetPermissionStatus(SystemPermission permission) { return PERMISSION_STATUS_GRANTED; }
+
+std::vector<std::string> System_GetCameraDeviceList() {
+#if PPSSPP_PLATFORM(MAC)
+	return __mac_getDeviceList();
+#elif PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID)
+	return __v4l_getDeviceList();
+#endif
+}
 
 void System_LaunchUrl(LaunchUrlType urlType, std::string_view url) {
 	switch (urlType) {

@@ -677,6 +677,11 @@ void System_LaunchUrl(LaunchUrlType urlType, std::string_view url) {
 	}
 }
 
+// Stub
+std::vector<std::string> System_GetCameraDeviceList() {
+	return std::vector<std::string>();
+}
+
 void System_Vibrate(int length_ms) {
 #if _M_ARM
 	if (length_ms == -1 || length_ms == -3)
